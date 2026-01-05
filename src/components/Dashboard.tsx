@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useRef, useState } from 'react';
 import { TodayHighlight } from './TodayHighlight';
 import { StatsCards } from './StatsCards';
 import { MonthlyView } from './MonthlyView';
@@ -11,11 +11,9 @@ import { useWorkoutSheets } from '@/hooks/useWorkoutSheets';
 import { SheetType } from '@/types/workout';
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-const { signOut } = useAuth();
-
-
 
 export const Dashboard = () => {
+  const { signOut } = useAuth();
   const {
     weeks,
     restDays,
@@ -99,16 +97,15 @@ export const Dashboard = () => {
   const pastWeeks = weeks.filter(w => w.weekNumber < currentWeekNumber);
   const futureWeeks = weeks.filter(w => w.weekNumber > currentWeekNumber);
 
-  <div className="flex justify-end">
-    <Button variant="outline" onClick={signOut}>
-        Sair
-    </Button>
-  </div>
-
-
   return (
     <div className="min-h-screen bg-background">
       <div className="container max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-8 space-y-4 sm:space-y-6">
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={signOut}>
+            Sair
+          </Button>
+        </div>
+
         {/* Today's Highlight - Most prominent */}
         <TodayHighlight 
           todayWorkoutType={todayWorkoutType} 
