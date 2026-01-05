@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { DayWorkout, WeekData, MonthlyStats, WorkoutStats, WorkoutSession, SheetType } from '@/types/workout';
 
+
+const { user } = useAuth();
 const STORAGE_KEY = 'workout-tracker-2026';
 const GOAL_KEY = 'workout-goal-2026';
 const REST_DAYS_KEY = 'workout-rest-days-2026';
@@ -115,6 +117,13 @@ export const useWorkouts = () => {
     const currentRestDays = savedRestDays ? JSON.parse(savedRestDays) : [0];
     const currentSheetCount = savedSheetCount ? parseInt(savedSheetCount, 10) : 3;
     
+
+  const [restDays, setRestDays] = useState<number[]>([]);
+  const [sheetCount, setSheetCount] = useState(3);
+  const [annualGoal, setAnnualGoal] = useState(208);
+
+
+
     if (saved) {
       try {
         return JSON.parse(saved);
@@ -150,6 +159,35 @@ export const useWorkouts = () => {
   useEffect(() => {
     localStorage.setItem(SHEET_COUNT_KEY, sheetCount.toString());
   }, [sheetCount]);
+
+  useEffect(() => {
+  if (!user) return;
+
+  const loadSettings = async () => {
+    const { data } = await supabase
+      .from("user_settings")
+      .select("*")
+      .eq("user_id", user.id)
+      .single();
+
+    if (!data) {
+      await supabase.from("user_settings").insert({
+        user_id: user.id,
+        rest_days: [],
+        sheet_count: 3,
+        annual_goal: 208,
+      });
+      return;
+    }
+
+    setRestDays(data.rest_days);
+    setSheetCount(data.sheet_count);
+    setAnnualGoal(data.annual_goal);
+  };
+
+  loadSettings();
+}, [user]);
+
 
   const updateRestDays = useCallback((newRestDays: number[]) => {
     setRestDays(newRestDays);

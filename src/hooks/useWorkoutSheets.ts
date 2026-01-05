@@ -1,60 +1,88 @@
-import { useState, useEffect, useCallback } from 'react';
-import { WorkoutSheet, SheetType } from '@/types/workout';
+import { useEffect, useState } from "react";
+import { WorkoutSheet, SheetType } from "@/types/workout";
+import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/contexts/AuthContext";
 
-const SHEETS_STORAGE_KEY = 'workout-sheets-2026';
+const DEFAULT_SHEETS: SheetType[] = ["A", "B", "C", "D", "E"];
 
-const defaultSheets: WorkoutSheet[] = [
-  { type: 'A', name: 'Treino A', exercises: [] },
-  { type: 'B', name: 'Treino B', exercises: [] },
-  { type: 'C', name: 'Treino C', exercises: [] },
-  { type: 'D', name: 'Treino D', exercises: [] },
-  { type: 'E', name: 'Treino E', exercises: [] },
-];
-
-export const useWorkoutSheets = () => {
-  const [sheets, setSheets] = useState<WorkoutSheet[]>(() => {
-    const saved = localStorage.getItem(SHEETS_STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        // Ensure we have all 5 sheets
-        const allTypes: SheetType[] = ['A', 'B', 'C', 'D', 'E'];
-        const existingTypes = parsed.map((s: WorkoutSheet) => s.type);
-        const missing = allTypes.filter(t => !existingTypes.includes(t));
-        
-        if (missing.length > 0) {
-          return [
-            ...parsed,
-            ...missing.map(type => ({ type, name: `Treino ${type}`, exercises: [] }))
-          ];
-        }
-        return parsed;
-      } catch {
-        return defaultSheets;
-      }
-    }
-    return defaultSheets;
-  });
+export function useWorkoutSheets() {
+  const { user } = useAuth();
+  const [sheets, setSheets] = useState<WorkoutSheet[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    localStorage.setItem(SHEETS_STORAGE_KEY, JSON.stringify(sheets));
-  }, [sheets]);
+    if (!user) return;
 
-  const updateSheet = useCallback((updatedSheet: WorkoutSheet) => {
-    setSheets(prev => 
-      prev.map(sheet => 
-        sheet.type === updatedSheet.type ? updatedSheet : sheet
-      )
+    const loadSheets = async () => {
+      setLoading(true);
+
+      const { data, error } = await supabase
+        .from("workout_sheets")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("type");
+
+      if (error) {
+        console.error("Erro ao carregar fichas", error);
+        setLoading(false);
+        return;
+      }
+
+      if (data.length === 0) {
+        const initialSheets = DEFAULT_SHEETS.map((type) => ({
+          user_id: user.id,
+          type,
+          name: `Treino ${type}`,
+          exercises: [],
+        }));
+
+        const { data: inserted } = await supabase
+          .from("workout_sheets")
+          .insert(initialSheets)
+          .select();
+
+        setSheets(inserted ?? []);
+      } else {
+        setSheets(
+          data.map((s) => ({
+            type: s.type,
+            name: s.name,
+            exercises: s.exercises ?? [],
+          }))
+        );
+      }
+
+      setLoading(false);
+    };
+
+    loadSheets();
+  }, [user]);
+
+  const updateSheet = async (sheet: WorkoutSheet) => {
+    if (!user) return;
+
+    setSheets((prev) =>
+      prev.map((s) => (s.type === sheet.type ? sheet : s))
     );
-  }, []);
 
-  const getSheetByType = useCallback((type: SheetType): WorkoutSheet | undefined => {
-    return sheets.find(sheet => sheet.type === type);
-  }, [sheets]);
+    await supabase
+      .from("workout_sheets")
+      .update({
+        name: sheet.name,
+        exercises: sheet.exercises,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", user.id)
+      .eq("type", sheet.type);
+  };
+
+  const getSheetByType = (type: SheetType) =>
+    sheets.find((s) => s.type === type);
 
   return {
     sheets,
+    loading,
     updateSheet,
     getSheetByType,
   };
-};
+}

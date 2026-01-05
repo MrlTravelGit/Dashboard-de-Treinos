@@ -9,6 +9,11 @@ import { WeekCardCompact } from './WeekCardCompact';
 import { useWorkouts } from '@/hooks/useWorkouts';
 import { useWorkoutSheets } from '@/hooks/useWorkoutSheets';
 import { SheetType } from '@/types/workout';
+import { useAuth } from "@/contexts/AuthContext";
+import { Button } from "@/components/ui/button";
+const { signOut } = useAuth();
+
+
 
 export const Dashboard = () => {
   const {
@@ -93,6 +98,13 @@ export const Dashboard = () => {
   // Separate weeks into past, current, and future
   const pastWeeks = weeks.filter(w => w.weekNumber < currentWeekNumber);
   const futureWeeks = weeks.filter(w => w.weekNumber > currentWeekNumber);
+
+  <div className="flex justify-end">
+    <Button variant="outline" onClick={signOut}>
+        Sair
+    </Button>
+  </div>
+
 
   return (
     <div className="min-h-screen bg-background">
