@@ -1,547 +1,200 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   DayWorkout,
   WeekData,
-  MonthlyStats,
-  WorkoutStats,
   WorkoutSession,
+  WorkoutStats,
   SheetType,
 } from "@/types/workout";
-import { supabase } from "@/lib/supabaseClient";
-
-const STORAGE_KEY = "workout-tracker-2026";
-const GOAL_KEY = "workout-goal-2026";
-const REST_DAYS_KEY = "workout-rest-days-2026";
-const SHEET_COUNT_KEY = "workout-sheet-count-2026";
+import supabase from "@/lib/supabaseClient";
 
 const ALL_SHEET_TYPES: SheetType[] = ["A", "B", "C", "D", "E"];
 
-const getWorkoutType = (
-  dayOfWeek: number,
-  restDays: number[],
-  sheetCount: number
-): SheetType | "rest" => {
-  if (restDays.includes(dayOfWeek)) return "rest";
-
-  let workoutDayIndex = 0;
-  for (let i = 0; i < dayOfWeek; i++) {
-    if (!restDays.includes(i)) workoutDayIndex++;
-  }
-
-  const pattern = ALL_SHEET_TYPES.slice(0, sheetCount);
-  return pattern[workoutDayIndex % sheetCount];
+const formatTime = (seconds: number) => {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return `${h}h ${m}m`;
 };
 
-const generateYearData = (
-  year: number,
-  restDays: number[],
-  sheetCount: number
-): WeekData[] => {
-  const weeks: WeekData[] = [];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  let currentDate = new Date(year, 0, 1);
-  let weekNumber = 1;
-
-  while (currentDate.getFullYear() === year) {
-    const weekDays: DayWorkout[] = [];
-    const weekStartDate = new Date(currentDate);
-
-    const startDayOfWeek = currentDate.getDay();
-    let daysInThisWeek = 7 - startDayOfWeek;
-    if (weekNumber > 1) daysInThisWeek = 7;
-
-    for (let i = 0; i < daysInThisWeek; i++) {
-      const dayDate = new Date(currentDate);
-      if (dayDate.getFullYear() !== year) break;
-
-      const dayOfWeek = dayDate.getDay();
-
-      weekDays.push({
-        date: dayDate.toISOString().split("T")[0],
-        workoutType: getWorkoutType(dayOfWeek, restDays, sheetCount),
-        completed: false,
-        duration: 0,
-        sessions: [],
-      });
-
-      currentDate.setDate(currentDate.getDate() + 1);
-    }
-
-    if (weekDays.length === 0) break;
-
-    const weekEnd = new Date(weekDays[weekDays.length - 1].date);
-    const isCurrent = today >= weekStartDate && today <= weekEnd;
-
-    weeks.push({
-      weekNumber,
-      startDate: weekDays[0].date,
-      endDate: weekDays[weekDays.length - 1].date,
-      days: weekDays,
-      isCurrent,
-    });
-
-    weekNumber++;
-    if (weekNumber > 54) break;
-  }
-
-  return weeks;
-};
-
-type DbUserSettings = {
-  user_id: string;
-  rest_days: number[];
-  sheet_count: number;
-  annual_goal: number;
-};
-
-type DbUserWorkouts = {
-  user_id: string;
-  weeks: WeekData[];
+const formatTimeDetailed = (seconds: number) => {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return `${h}h ${m}m ${s}s`;
 };
 
 export const useWorkouts = () => {
-  const [userId, setUserId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const updateSheetCount = (count: number) => {
+  if (loading) return;
+  setSheetCount(count);
+};
+  const [weeks, setWeeks] = useState<WeekData[]>([]);
+  const [expandedDay, setExpandedDay] = useState<string | null>(null);
+  const [restDays, setRestDays] = useState<number[]>([0]);
+  const [sheetCount, setSheetCount] = useState(3);
+  const [annualGoal, setAnnualGoal] = useState(208);
 
-  const [restDays, setRestDays] = useState<number[]>(() => {
-    const saved = localStorage.getItem(REST_DAYS_KEY);
-    if (!saved) return [0];
-    try {
-      return JSON.parse(saved);
-    } catch {
-      return [0];
-    }
-  });
-
-  const [sheetCount, setSheetCount] = useState<number>(() => {
-    const saved = localStorage.getItem(SHEET_COUNT_KEY);
-    return saved ? parseInt(saved, 10) : 3;
-  });
-
-  const [annualGoal, setAnnualGoal] = useState<number>(() => {
-    const saved = localStorage.getItem(GOAL_KEY);
-    return saved ? parseInt(saved, 10) : 208;
-  });
-
-  const [weeks, setWeeks] = useState<WeekData[]>(() => {
-    const savedWeeks = localStorage.getItem(STORAGE_KEY);
-    const savedRestDays = localStorage.getItem(REST_DAYS_KEY);
-    const savedSheetCount = localStorage.getItem(SHEET_COUNT_KEY);
-
-    const currentRestDays = savedRestDays ? JSON.parse(savedRestDays) : [0];
-    const currentSheetCount = savedSheetCount
-      ? parseInt(savedSheetCount, 10)
-      : 3;
-
-    if (savedWeeks) {
-      try {
-        return JSON.parse(savedWeeks);
-      } catch {
-        return generateYearData(2026, currentRestDays, currentSheetCount);
-      }
-    }
-
-    return generateYearData(2026, currentRestDays, currentSheetCount);
-  });
-
-  const [expandedDay, setExpandedDay] = useState<string | null>(() => {
-    return new Date().toISOString().split("T")[0];
-  });
-
-  const saveTimerRef = useRef<number | null>(null);
-
-  const saveToLocalStorage = useCallback(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(weeks));
-    localStorage.setItem(GOAL_KEY, annualGoal.toString());
-    localStorage.setItem(REST_DAYS_KEY, JSON.stringify(restDays));
-    localStorage.setItem(SHEET_COUNT_KEY, sheetCount.toString());
-  }, [weeks, annualGoal, restDays, sheetCount]);
-
-  const loadFromSupabase = useCallback(async (uid: string) => {
-    const { data: settings } = await supabase
-      .from("user_settings")
-      .select("*")
-      .eq("user_id", uid)
-      .maybeSingle<DbUserSettings>();
-
-    if (!settings) {
-      await supabase.from("user_settings").insert({
-        user_id: uid,
-        rest_days: restDays,
-        sheet_count: sheetCount,
-        annual_goal: annualGoal,
-      });
-
-    } else {
-      setRestDays(settings.rest_days ?? [0]);
-      setSheetCount(settings.sheet_count ?? 3);
-      setAnnualGoal(settings.annual_goal ?? 208);
-    }
-
-    const { data: workouts } = await supabase
-      .from("user_workouts")
-      .select("*")
-      .eq("user_id", uid)
-      .maybeSingle<DbUserWorkouts>();
-
-    if (workouts?.weeks?.length) {
-      setWeeks(workouts.weeks);
-    } else {
-      const initial = generateYearData(
-        2026,
-        settings?.rest_days ?? restDays,
-        settings?.sheet_count ?? sheetCount
-      );
-      setWeeks(initial);
-      await supabase.from("user_workouts").upsert({
-        user_id: uid,
-        weeks: initial,
-      });
-    }
-  }, [annualGoal, restDays, sheetCount]);
-
-  const scheduleSaveToSupabase = useCallback(
-    (uid: string) => {
-      if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-
-      saveTimerRef.current = window.setTimeout(async () => {
-        const payloadSettings: DbUserSettings = {
-          user_id: uid,
-          rest_days: restDays,
-          sheet_count: sheetCount,
-          annual_goal: annualGoal,
-        };
-
-        await supabase.from("user_settings").upsert(payloadSettings);
-
-        const payloadWorkouts: DbUserWorkouts = {
-          user_id: uid,
-          weeks,
-        };
-
-        await supabase.from("user_workouts").upsert(payloadWorkouts);
-      }, 600);
-    },
-    [weeks, restDays, sheetCount, annualGoal]
-  );
-
-  useEffect(() => {
-    saveToLocalStorage();
-  }, [saveToLocalStorage]);
+  const hydratedRef = useRef(false);
 
   useEffect(() => {
     const init = async () => {
       const { data } = await supabase.auth.getUser();
-      const uid = data.user?.id ?? null;
-      setUserId(uid);
-
-      if (uid) {
-        await loadFromSupabase(uid);
+      if (!data.user) {
+        setLoading(false);
+        return;
       }
+
+      if (hydratedRef.current) return;
+      hydratedRef.current = true;
+
+      const { data: workouts } = await supabase
+        .from("user_workouts")
+        .select("*")
+        .eq("user_id", data.user.id)
+        .maybeSingle();
+
+      if (workouts?.weeks) {
+        setWeeks(workouts.weeks);
+      }
+
+      setLoading(false);
     };
 
     init();
+  }, []);
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        const uid = session?.user?.id ?? null;
-        setUserId(uid);
-        if (uid) await loadFromSupabase(uid);
-      }
-    );
-
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
-  }, [loadFromSupabase]);
-
-  useEffect(() => {
-    if (!userId) return;
-    scheduleSaveToSupabase(userId);
-  }, [weeks, restDays, sheetCount, annualGoal, userId, scheduleSaveToSupabase]);
-
-  const updateRestDays = useCallback(
-    (newRestDays: number[]) => {
-      setRestDays(newRestDays);
-
-      setWeeks((prevWeeks) => {
-        const newWeeks = generateYearData(2026, newRestDays, sheetCount);
-
-        return newWeeks.map((newWeek) => {
-          const existingWeek = prevWeeks.find(
-            (w) => w.weekNumber === newWeek.weekNumber
-          );
-          if (!existingWeek) return newWeek;
-
-          return {
-            ...newWeek,
-            days: newWeek.days.map((newDay) => {
-              const existingDay = existingWeek.days.find(
-                (d) => d.date === newDay.date
-              );
-              if (!existingDay) return newDay;
-
-              return {
-                ...newDay,
-                sessions: existingDay.sessions,
-                duration: existingDay.duration,
-                completed: existingDay.completed,
-                completedExercises: existingDay.completedExercises,
-              };
-            }),
-          };
-        });
-      });
-    },
-    [sheetCount]
-  );
-
-  const updateSheetCount = useCallback(
-    (newCount: number) => {
-      setSheetCount(newCount);
-
-      setWeeks((prevWeeks) => {
-        const newWeeks = generateYearData(2026, restDays, newCount);
-
-        return newWeeks.map((newWeek) => {
-          const existingWeek = prevWeeks.find(
-            (w) => w.weekNumber === newWeek.weekNumber
-          );
-          if (!existingWeek) return newWeek;
-
-          return {
-            ...newWeek,
-            days: newWeek.days.map((newDay) => {
-              const existingDay = existingWeek.days.find(
-                (d) => d.date === newDay.date
-              );
-              if (!existingDay) return newDay;
-
-              return {
-                ...newDay,
-                sessions: existingDay.sessions,
-                duration: existingDay.duration,
-                completed: existingDay.completed,
-                completedExercises: existingDay.completedExercises,
-              };
-            }),
-          };
-        });
-      });
-    },
-    [restDays]
-  );
-
-  const updateAnnualGoal = (goal: number) => setAnnualGoal(goal);
+  const getDayData = (date: string) => {
+    for (const week of weeks) {
+      const day = week.days.find((d) => d.date === date);
+      if (day) return day;
+    }
+    return undefined;
+  };
 
   const toggleDayExpanded = (date: string) => {
+    if (loading) return;
     setExpandedDay((prev) => (prev === date ? null : date));
   };
 
-  const addSession = useCallback(
-    (date: string, session: Omit<WorkoutSession, "id" | "createdAt">) => {
-      const newSession: WorkoutSession = {
-        ...session,
-        id: crypto.randomUUID(),
-        createdAt: new Date().toISOString(),
-      };
+    const addSession = (
+      date: string,
+      duration: number,
+      isManual: boolean,
+      justification?: string
+    ) => {
+      if (loading) return;
 
-      setWeeks((prev) =>
-        prev.map((week) => ({
-          ...week,
-          days: week.days.map((day) => {
-            if (day.date !== date) return day;
+    const newSession: WorkoutSession = {
+  id: crypto.randomUUID(),
+  date,
+  duration,
+  isManual,
+  justification,
+  createdAt: new Date().toISOString(),
+};
 
-            const newSessions = [...day.sessions, newSession];
-            const totalDuration = newSessions.reduce(
-              (sum, s) => sum + s.duration,
-              0
-            );
+      
 
-            return {
-              ...day,
-              sessions: newSessions,
-              duration: totalDuration,
-              completed: totalDuration > 0,
-            };
-          }),
-        }))
-      );
-    },
-    []
-  );
-
-  const deleteSession = useCallback((date: string, sessionId: string) => {
     setWeeks((prev) =>
       prev.map((week) => ({
         ...week,
         days: week.days.map((day) => {
           if (day.date !== date) return day;
 
-          const newSessions = day.sessions.filter((s) => s.id !== sessionId);
-          const totalDuration = newSessions.reduce(
-            (sum, s) => sum + s.duration,
-            0
-          );
+          const sessions = [...day.sessions, newSession];
+          const total = sessions.reduce((s, v) => s + v.duration, 0);
 
           return {
             ...day,
-            sessions: newSessions,
-            duration: totalDuration,
-            completed: totalDuration > 0,
+            sessions,
+            duration: total,
+            completed: total > 0,
           };
         }),
       }))
     );
-  }, []);
+  };
 
-  const toggleExerciseComplete = useCallback((date: string, exerciseId: string) => {
+  const deleteSession = (date: string, sessionId: string) => {
     setWeeks((prev) =>
       prev.map((week) => ({
         ...week,
         days: week.days.map((day) => {
           if (day.date !== date) return day;
 
-          const currentCompleted = day.completedExercises ?? [];
-          const isCompleted = currentCompleted.includes(exerciseId);
-
-          const newCompleted = isCompleted
-            ? currentCompleted.filter((id) => id !== exerciseId)
-            : [...currentCompleted, exerciseId];
+          const sessions = day.sessions.filter((s) => s.id !== sessionId);
+          const total = sessions.reduce((s, v) => s + v.duration, 0);
 
           return {
             ...day,
-            completedExercises: newCompleted,
+            sessions,
+            duration: total,
+            completed: total > 0,
           };
         }),
       }))
     );
-  }, []);
+  };
 
-  const getStats = useCallback((): WorkoutStats => {
+  const toggleExerciseComplete = (date: string, exerciseId: string) => {
+    setWeeks((prev) =>
+      prev.map((week) => ({
+        ...week,
+        days: week.days.map((day) => {
+          if (day.date !== date) return day;
+
+          const completed = day.completedExercises ?? [];
+          const exists = completed.includes(exerciseId);
+
+          return {
+            ...day,
+            completedExercises: exists
+              ? completed.filter((id) => id !== exerciseId)
+              : [...completed, exerciseId],
+          };
+        }),
+      }))
+    );
+  };
+
+  const getStats = (): WorkoutStats => {
     let completed = 0;
-    let totalSeconds = 0;
+    let seconds = 0;
 
-    weeks.forEach((week) => {
-      week.days.forEach((day) => {
-        if (day.completed && day.workoutType !== "rest") completed++;
-        totalSeconds += day.duration;
-      });
-    });
-
-    const currentWeek = weeks.find((w) => w.isCurrent)?.weekNumber || 1;
-    const progress = annualGoal > 0 ? (completed / annualGoal) * 100 : 0;
-    const totalHours = Math.floor(totalSeconds / 3600);
-    const totalMinutes = Math.floor((totalSeconds % 3600) / 60);
+    weeks.forEach((w) =>
+      w.days.forEach((d) => {
+        if (d.completed && d.workoutType !== "rest") completed++;
+        seconds += d.duration;
+      })
+    );
 
     return {
       completed,
-      progress,
-      totalHours,
-      totalMinutes,
-      currentWeek,
-      annualGoal,
       remaining: Math.max(0, annualGoal - completed),
+      progress: (completed / annualGoal) * 100,
+      totalHours: Math.floor(seconds / 3600),
+      totalMinutes: Math.floor((seconds % 3600) / 60),
+      currentWeek: weeks.find((w) => w.isCurrent)?.weekNumber ?? 1,
+      annualGoal,
     };
-  }, [weeks, annualGoal]);
-
-  const getMonthlyStats = useCallback((): MonthlyStats[] => {
-    const months: MonthlyStats[] = [
-      { month: 0, name: "Jan", completed: 0, percentage: 0 },
-      { month: 1, name: "Fev", completed: 0, percentage: 0 },
-      { month: 2, name: "Mar", completed: 0, percentage: 0 },
-      { month: 3, name: "Abr", completed: 0, percentage: 0 },
-      { month: 4, name: "Mai", completed: 0, percentage: 0 },
-      { month: 5, name: "Jun", completed: 0, percentage: 0 },
-      { month: 6, name: "Jul", completed: 0, percentage: 0 },
-      { month: 7, name: "Ago", completed: 0, percentage: 0 },
-      { month: 8, name: "Set", completed: 0, percentage: 0 },
-      { month: 9, name: "Out", completed: 0, percentage: 0 },
-      { month: 10, name: "Nov", completed: 0, percentage: 0 },
-      { month: 11, name: "Dez", completed: 0, percentage: 0 },
-    ];
-
-    const workoutsPerMonth: number[] = new Array(12).fill(0);
-    const completedPerMonth: number[] = new Array(12).fill(0);
-
-    weeks.forEach((week) => {
-      week.days.forEach((day) => {
-        const month = new Date(day.date).getMonth();
-        if (day.workoutType !== "rest") {
-          workoutsPerMonth[month]++;
-          if (day.completed) completedPerMonth[month]++;
-        }
-      });
-    });
-
-    months.forEach((m, i) => {
-      m.completed = completedPerMonth[i];
-      m.percentage =
-        workoutsPerMonth[i] > 0
-          ? Math.round((completedPerMonth[i] / workoutsPerMonth[i]) * 100)
-          : 0;
-    });
-
-    return months;
-  }, [weeks]);
-
-  const getDayData = useCallback(
-    (date: string): DayWorkout | undefined => {
-      for (const week of weeks) {
-        const day = week.days.find((d) => d.date === date);
-        if (day) return day;
-      }
-      return undefined;
-    },
-    [weeks]
-  );
-
-  const formatTime = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    return `${hours.toString().padStart(2, "0")}:${minutes
-      .toString()
-      .padStart(2, "0")}`;
   };
-
-  const formatTimeDetailed = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    return `${hours.toString().padStart(2, "0")}:${minutes
-      .toString()
-      .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-  };
-
-  const weeksWithCurrentFlag = weeks.map((week) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const weekStart = new Date(`${week.startDate}T00:00:00`);
-    const weekEnd = new Date(`${week.endDate}T23:59:59`);
-    return {
-      ...week,
-      isCurrent: today >= weekStart && today <= weekEnd,
-    };
-  });
 
   return {
-    weeks: weeksWithCurrentFlag,
+    loading,
+    weeks,
     restDays,
     sheetCount,
     annualGoal,
     expandedDay,
-    updateRestDays,
-    updateSheetCount,
-    updateAnnualGoal,
+    getDayData,
     toggleDayExpanded,
     addSession,
     deleteSession,
     toggleExerciseComplete,
     getStats,
-    getMonthlyStats,
-    getDayData,
     formatTime,
     formatTimeDetailed,
+    updateSheetCount,
   };
 };
