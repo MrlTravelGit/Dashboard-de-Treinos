@@ -74,6 +74,7 @@ export function Dashboard() {
             expandedDay={workouts.expandedDay}
             sheets={sheetsHook.sheets}
             onToggleDay={workouts.toggleDayExpanded}
+            onToggleRestDay={workouts.toggleRestDay}
             onSaveSession={workouts.addSession}
             onDeleteSession={workouts.deleteSession}
             onToggleExercise={workouts.toggleExerciseComplete}

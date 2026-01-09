@@ -1,11 +1,15 @@
 import { WeekData, WorkoutSheet, SheetType } from '@/types/workout';
 import { DayCard } from './DayCard';
+import { Button } from "@/components/ui/button";
+
+
 
 interface WeekCardProps {
   week: WeekData;
   expandedDay: string | null;
   sheets: WorkoutSheet[];
   onToggleDay: (date: string) => void;
+  onToggleRestDay: (date: string) => void;
   onSaveSession: (date: string, duration: number, isManual: boolean, justification?: string) => void;
   onDeleteSession: (date: string, sessionId: string) => void;
   onToggleExercise: (date: string, exerciseId: string) => void;
@@ -31,6 +35,7 @@ export const WeekCard = ({
   expandedDay,
   sheets,
   onToggleDay,
+  onToggleRestDay,
   onSaveSession,
   onDeleteSession,
   onToggleExercise,
@@ -83,6 +88,23 @@ export const WeekCard = ({
           const isToday = dayDate.getTime() === today.getTime();
           
           const sheet = getSheetForDay(day.workoutType);
+
+          <div className="flex justify-end mb-1">
+
+<Button
+  variant={day.workoutType === "rest" ? "secondary" : "outline"}
+  size="sm"
+  onClick={(e) => {
+    e.stopPropagation();
+    onToggleRestDay(day.date);
+  }}
+>
+  {day.workoutType === "rest" ? "Remover descanso" : "Marcar descanso"}
+</Button>
+
+
+
+</div>
           
           return (
             <DayCard
