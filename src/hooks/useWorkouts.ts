@@ -312,6 +312,36 @@ export const useWorkouts = () => {
     if (loading) return;
     setExpandedDay((prev) => (prev === date ? null : date));
   };
+const toggleRestDay = (date: string) => {
+  if (loading) return;
+
+  setWeeks((prev) =>
+    prev.map((week) => ({
+      ...week,
+      days: week.days.map((day) => {
+        if (day.date !== date) return day;
+
+        const isRest = day.workoutType === "rest";
+
+        if (!isRest) {
+          return {
+            ...day,
+            workoutType: "rest",
+            completed: false,
+            duration: 0,
+            sessions: [],
+            completedExercises: [],
+          };
+        }
+
+        return {
+          ...day,
+          workoutType: "A",
+        };
+      }),
+    }))
+  );
+};
 
   const updateRestDays = (days: number[]) => {
     if (loading) return;
@@ -500,6 +530,7 @@ export const useWorkouts = () => {
     expandedDay,
     getDayData,
     toggleDayExpanded,
+    toggleRestDay,
     updateRestDays,
     updateSheetCount,
     updateAnnualGoal,
